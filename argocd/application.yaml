@@ -8,7 +8,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/gremlins-bt/technical-challenge.git
+    repoURL: https://github.com/manuelbajescu/technical-challenge-manuel-bajescu.git
     targetRevision: HEAD
     path: helm/app-chart
     helm:
@@ -19,8 +19,8 @@ spec:
     namespace: default
   syncPolicy:
     automated:
-      prune: false
-      selfHeal: false
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
       - Validate=false
