@@ -53,15 +53,17 @@ spec:
               value: production
           readinessProbe:
             httpGet:
-              path: /readyz
+              path: /ready
               port: http
             periodSeconds: 10
+            timeoutSeconds: 2
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
             periodSeconds: 15
+            timeoutSeconds: 2
             failureThreshold: 3
           startupProbe:
             httpGet:
@@ -74,6 +76,7 @@ spec:
               cpu: 250m
               memory: 256Mi
             limits:
+              cpu: 500m
               memory: 512Mi
           securityContext:
             allowPrivilegeEscalation: false

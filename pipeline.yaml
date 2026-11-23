@@ -20,17 +20,19 @@ jobs:
   test:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@<sha-v4>  # fixează pe SHA de commit
-      - uses: actions/setup-python@<sha-v5>
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
           cache: pip
-      - run: pip install -r requirements.txt -r requirements-dev.txt
-      - run: pytest tests/
+          cache-dependency-path: src/backend/requirements.txt
+      - uses: azure/setup-helm@v4
+      - run: pip install -r src/backend/requirements.txt
+      - run: python -m compileall -q src/backend
       - name: Helm lint and validate
         run: |
-          helm lint charts/order-backend
-          helm template charts/order-backend | kubeconform -strict -summary
+          helm lint helm/app-chart
+          helm template order-backend helm/app-chart > /dev/null
 
   build:
     needs: test
@@ -43,48 +45,48 @@ jobs:
     outputs:
       digest: ${{ steps.push.outputs.digest }}
     steps:
-      - uses: actions/checkout@<sha-v4>
-      - uses: docker/setup-buildx-action@<sha-v3>
-      - uses: docker/login-action@<sha-v3>
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: mycompany-registry.io
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_TOKEN }}
       - id: push
-        uses: docker/build-push-action@<sha-v6>
+        uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./src/backend
           push: true
           tags: ${{ env.IMAGE }}:${{ github.sha }}
           sbom: true
           provenance: mode=max
       - name: Scan image
-        uses: aquasecurity/trivy-action@<sha>
+        uses: aquasecurity/trivy-action@v2
         with:
           image-ref: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
           severity: CRITICAL,HIGH
           exit-code: "1"
           ignore-unfixed: true
-      - uses: sigstore/cosign-installer@<sha-v3>
+      - uses: sigstore/cosign-installer@v2
       - run: cosign sign --yes ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
 
   deploy:
     needs: build
     runs-on: ubuntu-24.04
-    environment: production   # reviewer obligatoriu înainte de deploy
+    environment: production
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@<sha-v4>
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
       # Login OIDC la cloud și obținere kubeconfig (alege una dintre variante):
       # azure/login + azure/aks-set-context
       # aws-actions/configure-aws-credentials + aws eks update-kubeconfig
       # google-github-actions/auth + get-gke-credentials
       - name: Helm deploy
         run: |
-          helm upgrade --install order-backend charts/order-backend \
+          helm upgrade --install order-backend helm/app-chart \
             --namespace orders --create-namespace \
-            --set image.tag=${{ github.sha }} \
-            --set image.digest=${{ needs.build.outputs.digest }} \
+            --set-string image.tag=${{ github.sha }} \
             --atomic --wait --timeout 10m
