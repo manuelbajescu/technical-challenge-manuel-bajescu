@@ -13,9 +13,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-env:
-  IMAGE: mycompany-registry.io/apps/order-backend
-
 jobs:
   test:
     runs-on: ubuntu-24.04
@@ -27,66 +24,52 @@ jobs:
           cache: pip
           cache-dependency-path: src/backend/requirements.txt
       - uses: azure/setup-helm@v4
-      - run: pip install -r src/backend/requirements.txt
+      - run: python -m pip install -r src/backend/requirements.txt
       - run: python -m compileall -q src/backend
       - name: Helm lint and validate
         run: |
           helm lint helm/app-chart
           helm template order-backend helm/app-chart > /dev/null
 
-  build:
+  deploy:
     needs: test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      id-token: write      # pentru OIDC și cosign keyless
-      packages: write
-    outputs:
-      digest: ${{ steps.push.outputs.digest }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: mycompany-registry.io
-          username: ${{ secrets.REGISTRY_USERNAME }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
-      - id: push
-        uses: docker/build-push-action@v6
-        with:
-          context: ./src/backend
-          push: true
-          tags: ${{ env.IMAGE }}:${{ github.sha }}
-          sbom: true
-          provenance: mode=max
-      - name: Scan image
-        uses: aquasecurity/trivy-action@v2
-        with:
-          image-ref: ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
-          severity: CRITICAL,HIGH
-          exit-code: "1"
-          ignore-unfixed: true
-      - uses: sigstore/cosign-installer@v2
-      - run: cosign sign --yes ${{ env.IMAGE }}@${{ steps.push.outputs.digest }}
-
-  deploy:
-    needs: build
     runs-on: ubuntu-24.04
     environment: production
     permissions:
       contents: read
       id-token: write
+    env:
+      ACR_NAME: mycdentdevmcd26x
+      AKS_RESOURCE_GROUP: rg-mycdent-dev-mcd26x
+      AKS_NAME: aks-mycdent-dev-mcd26x
     steps:
       - uses: actions/checkout@v4
+      - name: Sign in to Azure with OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - uses: azure/setup-helm@v4
-      # Login OIDC la cloud și obținere kubeconfig (alege una dintre variante):
-      # azure/login + azure/aks-set-context
-      # aws-actions/configure-aws-credentials + aws eks update-kubeconfig
-      # google-github-actions/auth + get-gke-credentials
-      - name: Helm deploy
+      - name: Build and push image to ACR
+        run: |
+          az acr login --name "$ACR_NAME"
+          ACR_LOGIN_SERVER="$(az acr show --name "$ACR_NAME" --query loginServer --output tsv)"
+          IMAGE="$ACR_LOGIN_SERVER/order-backend"
+          docker build --pull --tag "$IMAGE:$GITHUB_SHA" ./src/backend
+          docker push "$IMAGE:$GITHUB_SHA"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+      - name: Set AKS context
+        uses: azure/aks-set-context@v4
+        with:
+          cluster-name: aks-mycdent-dev-mcd26x
+          resource-group: rg-mycdent-dev-mcd26x
+          use-kubelogin: "true"
+      - name: Deploy to AKS
         run: |
           helm upgrade --install order-backend helm/app-chart \
             --namespace orders --create-namespace \
-            --set-string image.tag=${{ github.sha }} \
+            --set-string image.repository="$IMAGE" \
+            --set-string image.tag="$GITHUB_SHA" \
             --atomic --wait --timeout 10m
