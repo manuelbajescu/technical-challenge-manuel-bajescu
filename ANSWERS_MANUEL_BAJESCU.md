@@ -63,7 +63,7 @@
 
 ### Issue #6
 - **File & Line(s):** ./Dokerfile Line 25
-- **Category:** `[Security | Reliability | Kubernetes Best Practice | CI/CD | GitOps]`
+- **Category:** `[Reliability]`
 - **De ce este o problemă:** flag-ul --reload este pentru dezvoltare si nu pentru productie 
 - **Care este impactul:** adauga overhead si productia devine mai putin predictibila
 - **Cum ai remedia-o:** trebuie eliminat acest flag din productie
@@ -77,7 +77,7 @@
 - **Care este impactul:** functioneaza insa sunt mai multe probleme: incarca cu cateva 100MB imaginea, ofera posibiltate de atac 
 - **Cum ai remedia-o:** multi-stage build, se compileaza intr-o prima faza apoi imaginea finala primeste rezultatul; requirements.txt cu hash-uri (--require-hashes)
 
-# ---- build: aici avem compilatorul ----
+#### ---- build: aici avem compilatorul ----
 FROM python:3.13-slim AS builder
 
 RUN apt-get update \
@@ -92,7 +92,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 COPY requirements.txt .
 RUN pip install --require-hashes -r requirements.txt
 
-# ---- runtime: doar ce trebuie ca să ruleze ----
+#### ---- runtime: doar ce trebuie ca să ruleze ----
 FROM python:3.13-slim
 
 RUN apt-get update \
