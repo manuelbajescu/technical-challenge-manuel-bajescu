@@ -1,32 +1,45 @@
+# Revizuit pentru un deployment de productie.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    app.kubernetes.io/part-of: order-service
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: order-backend
-  namespace: default
+  namespace: production
   labels:
     app.kubernetes.io/name: backend-service
+    app.kubernetes.io/component: api
 spec:
-  replicas: 1
+  replicas: 3
+  revisionHistoryLimit: 5
   strategy:
-    type: Recreate
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
     matchLabels:
-      app: backend-service
-      tier: api-backend
+      app.kubernetes.io/name: backend-service
+      app.kubernetes.io/component: api
   template:
     metadata:
       labels:
-        app: backend-service
-        tier: wrong-backend
+        app.kubernetes.io/name: backend-service
+        app.kubernetes.io/component: api
     spec:
       securityContext:
-        privileged: true
-        allowPrivilegeEscalation: true
-        readOnlyRootFilesystem: false
-        runAsNonRoot: false
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
       containers:
         - name: backend
-          image: mycompany-registry.io/apps/order-backend:latest
+          image: mycompany-registry.io/apps/order-backend:REPLACE_WITH_IMMUTABLE_VERSION
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
@@ -34,31 +47,50 @@ spec:
               protocol: TCP
           env:
             - name: DB_HOST
-              value: "postgres-svc"
+              value: postgres-svc
             - name: DB_PORT
               value: "5432"
             - name: DB_USER
-              value: "postgres_admin"
+              value: postgres_app
             - name: DB_PASSWORD
-              value: "ProductionMasterPassword123!"
+              valueFrom:
+                secretKeyRef:
+                  name: order-backend-db
+                  key: DB_PASSWORD
             - name: DB_NAME
-              value: "ecommerce_db"
+              value: ecommerce_db
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /wrong-healthcheck
-              port: 8000
-            initialDelaySeconds: 2
-            periodSeconds: 5
-            failureThreshold: 1
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
           resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
             limits:
-              cpu: "4000m"
-              memory: "8Gi"
-          volumeMounts:
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
-      volumes:
-        - name: docker-sock
-          hostPath:
-            path: /var/run/docker.sock
-            type: Socket
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            privileged: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL

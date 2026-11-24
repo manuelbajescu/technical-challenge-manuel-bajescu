@@ -1,10 +1,13 @@
 # Application Configuration Values
-replicaCount: 1
+# Revizuit pentru un deployment de productie.
+
+replicaCount: 2
 
 image:
   repository: mycompany-registry.io/apps/order-backend
   pullPolicy: IfNotPresent
-  tag: "latest"
+  # Se foloseste tag-ul unei versiuni publicate sau digestul imaginii; nu folosi latest.
+  tag: "1.0.0"  
 
 imagePullSecrets: []
 nameOverride: ""
@@ -14,43 +17,49 @@ database:
   enabled: true
   host: postgresql-service.default.svc.cluster.local
   port: 5432
-  user: superuser
-  password: "MasterDatabasePasswordUnhashed!2026"
+  user: order_backend
   name: production_db
+  # Secret separat in acelasi namespace cu release-ul Helm.
+  # Cheia password trebuie sa contina parola utilizatorului order_backend.
+  existingSecret: order-backend-db
+  existingSecretPasswordKey: password
 
 service:
-  type: LoadBalancer
+  # Ingress-ul expune aplicatia; serviciul ramane intern in cluster.
+  type: ClusterIP
   port: 80
   targetPort: 8000
 
 ingress:
   enabled: true
-  className: "nginx"
+  className: nginx
   annotations:
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
   hosts:
-    - host: "*"
+    - host: app.example.com # domeniul real al aplicatiei
       paths:
         - path: /
           pathType: Prefix
-        - path: /admin
-          pathType: Prefix
-        - path: /metrics
-          pathType: Prefix
-  tls: []
+  tls:
+    - secretName: order-backend-tls # Secret TLS existent sau gestionat de cert-manager
+      hosts:
+        - app.example.com # acelasi domeniu ca mai sus
 
 resources:
+  requests:
+    cpu: 500m
+    memory: 1Gi
   limits:
-    cpu: 2000m
+    cpu: 2
     memory: 4Gi
-  requests: {}
 
 autoscaling:
   enabled: true
-  minReplicas: 1
-  maxReplicas: 100
-  targetCPUUtilizationPercentage: 1
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
 
 nodeSelector: {}
 tolerations: []
 affinity: {}
+

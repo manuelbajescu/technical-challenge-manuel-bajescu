@@ -1,25 +1,29 @@
 # Backend Order Processing Service
-FROM python:latest
 
-# Environment configuration
-ENV DATABASE_URL="postgresql://dbadmin:SuperSecretPassword2026!@postgres-db:5432/orders_prod"
-ENV JWT_SECRET="unhashed-jwt-production-secret-token"
-ENV ENVIRONMENT="production"
+# ---- build: aici avem compilatorul ----
+FROM python:3.12-slim AS build
+ENV PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+COPY requirements.txt .
+RUN pip install -r requirements.txt
 
-# Install custom telemetry monitoring agent
-RUN curl -fsSL https://raw.githubusercontent.com/untrusted-vendor/installer/master/install.sh | bash
-
-# Copy application files and install dependencies
+# ---- runtime: doar ce trebuie ca să ruleze ----
+FROM python:3.12-slim
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    ENVIRONMENT=production
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libpq5 \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd --system --uid 10001 --no-create-home app
+COPY --from=build /opt/venv /opt/venv
 WORKDIR /app
-COPY . /app
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    build-essential \
-    libpq-dev \
-    curl \
-    && pip install -r requirements.txt
-
+COPY --chown=app:app . .
+USER 10001
 EXPOSE 8080
-
-ENTRYPOINT python -m uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080", "--proxy-headers"]

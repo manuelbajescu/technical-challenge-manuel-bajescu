@@ -5,55 +5,83 @@ metadata:
   labels:
     app.kubernetes.io/name: {{ include "app-chart.name" . }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   strategy:
-    type: Recreate
+    type: RollingUpdate
   selector:
     matchLabels:
-      app: {{ include "app-chart.name" . }}
-      tier: api-backend
+      app.kubernetes.io/name: {{ include "app-chart.name" . }}
   template:
     metadata:
       labels:
-        app: {{ include "app-chart.name" . }}
-        tier: wrong-backend
+        app.kubernetes.io/name: {{ include "app-chart.name" . }}
     spec:
       securityContext:
-        privileged: true
-        allowPrivilegeEscalation: true
-        readOnlyRootFilesystem: false
-        runAsNonRoot: false
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: {{ .Chart.Name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: 8000
+              containerPort: 8080
               protocol: TCP
           env:
             - name: DB_HOST
               value: {{ .Values.database.host | quote }}
+            - name: DB_PORT
+              value: {{ .Values.database.port | quote }}
             - name: DB_USER
-              value: {{ .Values.database.user | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: DB_USER
             - name: DB_PASSWORD
-              value: {{ .Values.database.password | quote }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.existingSecret | quote }}
+                  key: DB_PASSWORD
             - name: DB_NAME
               value: {{ .Values.database.name | quote }}
           livenessProbe:
             httpGet:
-              path: /wrong-healthcheck
-              port: 8000
-            initialDelaySeconds: 2
+              path: /healthz
+              port: http
+            periodSeconds: 15
+            timeoutSeconds: 2
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
             periodSeconds: 5
-            failureThreshold: 1
+            timeoutSeconds: 2
+            failureThreshold: 24
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
-            - name: docker-sock
-              mountPath: /var/run/docker.sock
+            - name: tmp
+              mountPath: /tmp
       volumes:
-        - name: docker-sock
-          hostPath:
-            path: /var/run/docker.sock
-            type: Socket
+        - name: tmp
+          emptyDir: {}

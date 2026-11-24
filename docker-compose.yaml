@@ -6,8 +6,6 @@ services:
       POSTGRES_USER: postgres_admin
       POSTGRES_PASSWORD: postgres_secret
       POSTGRES_DB: ecommerce_db
-    ports:
-      - "5432:5432"
     volumes:
       - ./src/database/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
