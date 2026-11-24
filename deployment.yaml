@@ -1,3 +1,4 @@
+# Revizuit pentru un deployment de productie.
 apiVersion: v1
 kind: Namespace
 metadata:
