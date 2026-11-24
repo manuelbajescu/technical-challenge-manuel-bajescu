@@ -1,94 +1,57 @@
-# Application Configuration Values: order-backend
-nameOverride: ""
-fullnameOverride: "order-backend"
+# Application Configuration Values
+# Revizuit pentru un deployment de productie.
 
-replicaCount: 2   # ignorat când autoscaling.enabled=true
+replicaCount: 2
 
 image:
   repository: mycompany-registry.io/apps/order-backend
-  tag: "1.0.0"          # setat din CI
-  digest: ""            # sha256:... setat din CI; are prioritate față de tag
   pullPolicy: IfNotPresent
+  # Se foloseste tag-ul unei versiuni publicate sau digestul imaginii; nu folosi latest.
+  tag: "1.0.0"  
 
 imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
 
-serviceAccount:
-  create: true
-  name: order-backend
-  automount: false
-
-app:
-  environment: production
-  port: 8080
-
-# Fără valori secrete aici; secretul vine din External Secrets.
 database:
-  existingSecret: order-backend-db   # chei: DATABASE_URL (sau DB_HOST/DB_PORT/DB_USER/DB_PASSWORD/DB_NAME)
-  externalSecret:
-    enabled: true
-    secretStoreRef:
-      kind: ClusterSecretStore
-      name: cloud-secrets            # Key Vault, Secrets Manager sau GCP Secret Manager
-    remoteKey: orders/order-backend/db
-    refreshInterval: 1h
-
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 10001
-  runAsGroup: 10001
-  fsGroup: 10001
-  seccompProfile:
-    type: RuntimeDefault
-
-securityContext:
-  allowPrivilegeEscalation: false
-  privileged: false
-  readOnlyRootFilesystem: true
-  capabilities:
-    drop: ["ALL"]
-
-probes:
-  startup:   { path: /healthz, periodSeconds: 5,  failureThreshold: 24 }
-  readiness: { path: /readyz,  periodSeconds: 10, failureThreshold: 3 }
-  liveness:  { path: /healthz, periodSeconds: 15, failureThreshold: 3 }
+  enabled: true
+  host: postgresql-service.default.svc.cluster.local
+  port: 5432
+  user: order_backend
+  name: production_db
+  # Secret separat in acelasi namespace cu release-ul Helm.
+  # Cheia password trebuie sa contina parola utilizatorului order_backend.
+  existingSecret: order-backend-db
+  existingSecretPasswordKey: password
 
 service:
+  # Ingress-ul expune aplicatia; serviciul ramane intern in cluster.
   type: ClusterIP
   port: 80
-  targetPort: http        # portul numit 8080 din container
+  targetPort: 8000
 
 ingress:
   enabled: true
   className: nginx
   annotations:
-    cert-manager.io/cluster-issuer: letsencrypt-prod
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
   hosts:
-    - host: orders.mycompany.com
+    - host: app.example.com # domeniul real al aplicatiei
       paths:
         - path: /
           pathType: Prefix
   tls:
-    - secretName: order-backend-tls
+    - secretName: order-backend-tls # Secret TLS existent sau gestionat de cert-manager
       hosts:
-        - orders.mycompany.com
-  # /admin și /metrics NU sunt publicate aici
-
-metrics:
-  enabled: true
-  path: /metrics
-  serviceMonitor:
-    enabled: true         # Prometheus colectează în cluster, nu prin ingress
-    interval: 30s
+        - app.example.com # acelasi domeniu ca mai sus
 
 resources:
   requests:
-    cpu: 250m
-    memory: 256Mi
+    cpu: 500m
+    memory: 1Gi
   limits:
-    memory: 512Mi
+    cpu: 2
+    memory: 4Gi
 
 autoscaling:
   enabled: true
@@ -96,30 +59,7 @@ autoscaling:
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
 
-podDisruptionBudget:
-  enabled: true
-  minAvailable: 1
-
-networkPolicy:
-  enabled: true
-  ingressFrom:
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: ingress-nginx
-    - namespaceSelector:
-        matchLabels:
-          kubernetes.io/metadata.name: monitoring
-  egressTo:
-    database:
-      cidrOrSelector: {}  # selectorul sau CIDR-ul Postgres; port 5432
-      port: 5432
-    dns: true
-
-topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: topology.kubernetes.io/zone
-    whenUnsatisfiable: ScheduleAnyway
-
 nodeSelector: {}
 tolerations: []
 affinity: {}
+
