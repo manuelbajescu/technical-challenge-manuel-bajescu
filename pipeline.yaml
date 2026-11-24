@@ -1,3 +1,4 @@
+# Revizuit pentru un deployment de productie.
 name: Production CI/CD Pipeline
 
 on:
